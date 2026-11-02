@@ -1539,6 +1539,27 @@ def vld2(src, off=None, *, dist="DINTLV_B32", _semantic=None) -> tuple[vector, v
     return vector(even, ty), vector(odd, ty)
 
 
+@builtin
+def vcadd(src: vector, mask: vector = None, mode: tl.constexpr = MODE.ZEROING, _semantic=None) -> vector:
+    """
+    Adjacent-pair add (TileLang ``vcadd``): lane ``i`` of the low half
+    holds ``src[2i] + src[2i+1]``; the upper half of the result register
+    is undefined (the same low-lanes-valid contract as :func:`vcmax` /
+    :func:`vcmin`).
+
+    Composed as the pairwise de-interleave of ``src`` with itself followed
+    by a masked ``vadd`` (``vdintlv`` + ``vadd``); a native single-op
+    lowering can replace the composition once the AVE dialect grows one.
+
+    :param src: source vector register
+    :param mask: predicate register; defaults to an all-true mask
+    :param mode: ``MODE.ZEROING`` (default) or ``MODE.MERGING``
+    """
+    _require_vector(src, "src")
+    even, odd = vdintlv(src, src, _semantic=_semantic)
+    return vadd(even, odd, mask=mask, mode=mode, _semantic=_semantic)
+
+
 _FLOAT_TAGS = frozenset(("bf16", "f16", "f32", "fp8e4nv", "fp8e5"))
 
 _UNSIGNED_SPELLINGS = frozenset(("uint8", "uint16", "uint32", "uint64", "u8", "u16", "u32", "u64"))
