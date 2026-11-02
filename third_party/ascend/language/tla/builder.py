@@ -107,5 +107,7 @@ def setup_unified_builder(main_builder, ascend_builder):
         'create_simd_preg_binary',
         'create_simd_preg_unary',
         'create_simd_vmull',
+        'create_simd_vgather',
+        'create_simd_vld2',
     ]
     attach_builder_methods(main_builder, ascend_builder, ascend_methods)

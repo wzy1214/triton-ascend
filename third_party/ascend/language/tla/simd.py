@@ -1463,6 +1463,82 @@ def vmull(src0: vector, src1: vector, mask: vector = None, _semantic=None) -> tu
     return vector(low, src0.type), vector(high, src0.type)
 
 
+@builtin
+def vgather(base, index: vector, mask: vector = None, _semantic=None) -> vector:
+    """
+    Gather load (``ave.hir.vgather``): lane ``i`` loads ``base[index[i]]``.
+
+    The result element type is the buffer's element type; 64-bit elements
+    and non-32-bit element widths are rejected (the AVE gather lowering
+    covers b8/b16/b32 lanes, and the index register lane count must match
+    the full-register lane count of the element width).
+
+    :param base: ``tla.buffer`` in UB, or a subscripted element range
+        ``buf[i0, i1, ...]`` whose indices select the gather base
+    :param index: integer vector register of per-lane element offsets
+    :param mask: predicate register; defaults to an all-true mask
+    """
+    if isinstance(base, buffer_access):
+        base, offsets = base.buffer, list(base.indices)
+    else:
+        offsets = [0]
+    if not isinstance(base, buffer):
+        raise TypeError("simd.vgather expects a tla.buffer")
+    _require_vector(index, "index")
+    if not str(index.dtype).startswith(("int", "uint")):
+        raise TypeError(f"vgather index must be an integer vector, got {index.dtype}")
+    elem_ty = base.dtype
+    elem_tag = _elem_tag(elem_ty)
+    if _ELEM_SPECS[elem_tag] != 32:
+        raise ValueError(f"vgather currently supports 32-bit elements, got {elem_ty}")
+    lanes = _lanes_for(elem_tag)
+    if index.shape[0] != lanes:
+        raise ValueError(f"vgather index needs {lanes} lanes for {elem_ty}, "
+                         f"got {index.shape[0]}")
+    mask = _resolve_mask(mask, lanes, _semantic)
+    base_handle, indices = _resolve_base_and_indices(base, offsets, _semantic)
+    handle = _semantic.builder.create_simd_vgather(base_handle, indices, index.handle, mask.handle, elem_tag, lanes)
+    return vector(handle, vector_type(lanes, elem_ty))
+
+
+@builtin
+def vld2(src, off=None, *, dist="DINTLV_B32", _semantic=None) -> tuple[vector, vector]:
+    """
+    De-interleaving two-vector load (``ave.hir.vload`` with a ``DINTLV``
+    distribution): returns ``(even, odd)`` register halves read from one
+    strided access.
+
+    Only the f32 ``DINTLV_B32`` form has a two-result lowering today; the
+    buffer must hold at least ``2 * lanes`` elements from the given offset.
+
+    :param src: ``tla.buffer`` in UB, or a subscripted element range
+        ``buf[i0, i1, ...]`` whose indices become the offsets
+    :param off: index value; omit when ``src`` is a subscripted buffer
+    :param dist: load distribution; defaults to ``DINTLV_B32``
+    :return: ``(even, odd)`` vector registers
+    """
+    if isinstance(src, buffer_access):
+        src, offsets = src.buffer, list(src.indices)
+    elif off is None:
+        raise TypeError("vld2 needs an index: pass buf[i, ...] or explicit off")
+    else:
+        offsets = [off]
+    if not isinstance(src, buffer):
+        raise TypeError("simd.vld2 expects a tla.buffer")
+    elem_ty = src.dtype
+    elem_tag = _elem_tag(elem_ty)
+    dist = _unwrap_if_constexpr(dist)
+    ss.check_dist(dist, ss.LOAD_DISTS, "load")
+    if dist != "DINTLV_B32" or elem_tag != "f32":
+        raise ValueError(f"vld2 currently supports f32 DINTLV_B32 only, "
+                         f"got {elem_ty} with dist {dist}")
+    lanes = _lanes_for(elem_tag)
+    base, indices = _resolve_base_and_indices(src, offsets, _semantic)
+    even, odd = _semantic.builder.create_simd_vld2(base, indices, elem_tag, lanes, dist)
+    ty = vector_type(lanes, elem_ty)
+    return vector(even, ty), vector(odd, ty)
+
+
 _FLOAT_TAGS = frozenset(("bf16", "f16", "f32", "fp8e4nv", "fp8e5"))
 
 _UNSIGNED_SPELLINGS = frozenset(("uint8", "uint16", "uint32", "uint64", "u8", "u16", "u32", "u64"))

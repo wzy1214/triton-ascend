@@ -588,6 +588,45 @@ void init_tla_builder(py::module &&m) {
           },
           py::arg("src1"), py::arg("src2"), py::arg("mask"))
       .def(
+          "create_simd_vgather",
+          [](TLABuilder &self, Value &ptr, std::vector<Value> &indices,
+             Value &index_vec, Value &mask, py::object elem_tag,
+             int32_t lanes) -> Value {
+            auto &builder = self.getBuilder();
+            auto *ctx = builder.getContext();
+            auto resTy =
+                VectorType::get({lanes}, resolveSimdElementType(ctx, elem_tag));
+            auto indicesIdx = toIndexValues(self, indices);
+            auto op = builder.create<hivmave::VFGatherOp>(
+                self.getLastLoc(), resTy, ptr, ValueRange(indicesIdx),
+                index_vec, mask);
+            return op.getResult();
+          },
+          py::arg("ptr"), py::arg("indices"), py::arg("index_vec"),
+          py::arg("mask"), py::arg("elem_tag"), py::arg("lanes"))
+      .def(
+          "create_simd_vld2",
+          [](TLABuilder &self, Value &ptr, std::vector<Value> &indices,
+             py::object elem_tag, int32_t lanes,
+             std::string &dist) -> py::tuple {
+            auto &builder = self.getBuilder();
+            auto *ctx = builder.getContext();
+            auto vecTy =
+                VectorType::get({lanes}, resolveSimdElementType(ctx, elem_tag));
+            auto distEnum = hivmave::symbolizeLoadDist(dist);
+            if (!distEnum) {
+              throw std::invalid_argument("unknown load dist: " + dist);
+            }
+            auto distAttr = hivmave::LoadDistAttr::get(ctx, *distEnum);
+            auto indicesIdx = toIndexValues(self, indices);
+            auto op = builder.create<hivmave::VFLoadOp>(self.getLastLoc(),
+                                                        vecTy, vecTy, distAttr,
+                                                        ptr, indicesIdx);
+            return py::make_tuple(op.getRes(), op.getRes1());
+          },
+          py::arg("ptr"), py::arg("indices"), py::arg("elem_tag"),
+          py::arg("lanes"), py::arg("dist"))
+      .def(
           "create_simd_unary",
           [](TLABuilder &self, std::string &kind, Value &src, Value &mask,
              std::string mode) -> Value {
