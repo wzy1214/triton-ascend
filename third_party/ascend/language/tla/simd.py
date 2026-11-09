@@ -824,7 +824,7 @@ def pld(ptr, offsets=None, *, width=8, dist="NORM", _semantic=None) -> vector:
     _check_predicate_address(ptr, offsets, 64 if dist == "DS" else 32, "pld")
     base, indices = _resolve_base_and_indices(ptr, offsets, _semantic)
     lanes = 2048 // width
-    handle = _semantic.builder.create_simd_pld(base, indices, lanes, dist, f"pb{width}")
+    handle = _semantic.builder.create_simd_pld(base, indices, lanes, dist)
     return vector(handle, vector_type(lanes, tl.int1))
 
 
@@ -866,7 +866,7 @@ def pst(ptr, offsets_or_val, val=None, _semantic=None):
         raise ValueError("pst requires one byte offset")
     _check_predicate_address(ptr, offsets, val.type.lanes // 8, "pst")
     base, indices = _resolve_base_and_indices(ptr, offsets, _semantic)
-    _semantic.builder.create_simd_pst(base, indices, val.handle, f"pb{2048 // val.type.lanes}")
+    _semantic.builder.create_simd_pst(base, indices, val.handle)
 
 
 def _indexed_memory_indices(index, bits, op):
