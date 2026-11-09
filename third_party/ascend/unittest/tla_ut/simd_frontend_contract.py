@@ -1574,7 +1574,7 @@ def test_indexed_load_dispatch(op, dtype, index_dtype, lanes, mode):
     assert len(calls) == 1
     assert calls[0][0] is buf.handle and calls[0][1][0].ty == 3
     assert calls[0][2] is index.handle and calls[0][3] is mask.handle
-    assert calls[0][-1] == lanes
+    assert calls[0][-2] == lanes and calls[0][-1] is None
     assert all(name != "vsel" for name, _ in sem.builder.calls)
 
 
@@ -1587,7 +1587,6 @@ def test_indexed_load_dispatch(op, dtype, index_dtype, lanes, mode):
     (_buffer(tl.float32), _vec(64, tl.int32), None),
     (_buffer(tl.float16), _vec(128, tl.uint32), None),
     (_buffer(tl.float32), _vec(64, tl.uint32), _mask(128)),
-    (_buffer(tl.uint8), (_vec(128, tl.uint16), _vec(128, tl.uint16)), None),
     (_buffer(tl.uint8), (_vec(128, tl.uint16), ), None),
     (_buffer(tl.uint8), (_vec(128, tl.uint16), _vec(64, tl.uint32)), None),
 ])
@@ -1654,6 +1653,23 @@ def test_vunpack_rejects_unsupported_widths(src, dst):
 
 @pytest.mark.parametrize("dtype", (tl.int8, tl.uint8, tl.float8e4nv, tl.float8e5))
 @pytest.mark.parametrize("mask", (None, _mask(256)))
-def test_byte_gather_is_explicitly_unsupported(dtype, mask):
-    with pytest.raises(ValueError, match="only 16/32-bit"):
-        simd.vgather(_buffer(dtype), (_vec(128, tl.uint16), _vec(128, tl.uint16)), mask, _semantic=_Semantic())
+def test_byte_gather_has_one_logical_ave_call(dtype, mask):
+    sem = _Semantic()
+    lo, hi = _vec(128, tl.uint16), _vec(128, tl.uint16)
+    result = simd.vgather(_buffer(dtype), (lo, hi), mask, _semantic=sem)
+    assert result.type == simd.vector_type(256, dtype)
+    calls = [args for name, args in sem.builder.calls if name == "vgather"]
+    assert len(calls) == 1
+    assert calls[0][2] is lo.handle and calls[0][-1] is hi.handle
+    assert all(name in ("pge", "index", "vgather") for name, _ in sem.builder.calls)
+
+
+@pytest.mark.parametrize("src,dst,lanes", [(tl.int8, tl.int16, 256), (tl.int16, tl.int32, 128)])
+@pytest.mark.parametrize("part", (simd.PART.LOWER, simd.PART.HIGHER))
+@pytest.mark.parametrize("signed", (False, True))
+def test_half_unpack_contract(src, dst, lanes, part, signed):
+    sem = _Semantic()
+    result = simd.vunpack(_vec(lanes, src), dst, part=part, signed=signed, _semantic=sem)
+    assert result.type == simd.vector_type(lanes // 2, dst)
+    assert sem.builder.calls[0][0] == "vunpack"
+    assert sem.builder.calls[0][1][2:] == (part, "pp0", signed)
